@@ -305,6 +305,33 @@ class TestInitNpuBackend(unittest.TestCase):
         finally:
             torch.cuda.is_available = orig_available
 
+    def test_multimodal_gen_skips_transfer(self):
+        # When sglang.multimodal_gen is loaded, transfer_to_npu (and the
+        # cuda.is_available / allow_internal_format mocks it performs) is
+        # skipped, but set_compile_mode is still applied.
+        torch_npu, contrib = self._npu_stubs()
+        orig_available = torch.cuda.is_available
+        try:
+            with patch.object(npu_utils, "_is_npu", True), patch.dict(
+                sys.modules,
+                {
+                    "sglang.multimodal_gen": MagicMock(),
+                    "custom_ops": types.ModuleType("custom_ops"),
+                    "sgl_kernel_npu": types.ModuleType("sgl_kernel_npu"),
+                    "torch_npu": torch_npu,
+                    "torch_npu.contrib": contrib,
+                },
+            ):
+                init_npu_backend()
+                # transfer_to_npu path was skipped:
+                self.assertIs(torch.cuda.is_available, orig_available)
+                self.assertIsInstance(
+                    torch_npu.npu.config.allow_internal_format, MagicMock
+                )
+                torch_npu.npu.set_compile_mode.assert_called_once_with(jit_compile=False)
+        finally:
+            torch.cuda.is_available = orig_available
+
     def test_runs_only_once(self):
         torch_npu, contrib = self._npu_stubs()
         orig_available = torch.cuda.is_available
